@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "Unhook for Telegram",
+  "version": "1.0.0",
+  "description": "Control what you see in Telegram Web. Hide the search bar, folder/category tabs, chat list, stories, specific chats by name, or any element you pick.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "https://web.telegram.org/*"
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Unhook for Telegram",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://web.telegram.org/*"],
+      "js": ["src/content.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ]
+}

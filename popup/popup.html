@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>Unhook for Telegram</title>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <span class="logo">✈️</span>
+        <h1>Unhook for Telegram</h1>
+      </div>
+      <label class="switch master" title="Enable / disable everything">
+        <input type="checkbox" id="enabled" />
+        <span class="slider"></span>
+      </label>
+    </header>
+
+    <p class="hint" id="not-telegram" hidden>
+      Open <b>web.telegram.org</b> to use these controls.
+    </p>
+
+    <section class="focus">
+      <div class="row">
+        <div class="label">
+          <b>Focus folder</b>
+          <small>Auto-open a Telegram folder — the reliable way to show only chosen chats</small>
+        </div>
+        <label class="switch"><input type="checkbox" id="focusFolderMode" /><span class="slider"></span></label>
+      </div>
+      <input type="text" id="focusFolderName" placeholder="Folder name (e.g. focus mode)" />
+      <small class="section-hint" style="margin-top: 8px">
+        In Telegram, create a folder and add the chats you want. Type its exact
+        name above and the extension opens it automatically — even with the
+        folder tabs hidden. No list scanning, so it always works.
+      </small>
+    </section>
+
+    <section>
+      <h2>Presets</h2>
+      <div class="row">
+        <div class="label">
+          <b>Hide search bar</b>
+          <small>Removes the search input in the left panel</small>
+        </div>
+        <label class="switch"><input type="checkbox" id="hideSearch" /><span class="slider"></span></label>
+      </div>
+      <div class="row">
+        <div class="label">
+          <b>Hide folder / category tabs</b>
+          <small>All, Personal, Groups, Channels…</small>
+        </div>
+        <label class="switch"><input type="checkbox" id="hideFolders" /><span class="slider"></span></label>
+      </div>
+      <div class="row">
+        <div class="label">
+          <b>Hide stories bar</b>
+          <small>The stories row at the top of the chat list</small>
+        </div>
+        <label class="switch"><input type="checkbox" id="hideStories" /><span class="slider"></span></label>
+      </div>
+      <div class="row">
+        <div class="label">
+          <b>Hide menu / settings button</b>
+          <small>The ☰ hamburger in the top-left</small>
+        </div>
+        <label class="switch"><input type="checkbox" id="hideSettings" /><span class="slider"></span></label>
+      </div>
+      <div class="row">
+        <div class="label">
+          <b>Hide new-chat button</b>
+          <small>The floating ✎ pencil button</small>
+        </div>
+        <label class="switch"><input type="checkbox" id="hideNewChat" /><span class="slider"></span></label>
+      </div>
+      <div class="row">
+        <div class="label">
+          <b>Hide entire chat list</b>
+          <small>Focus mode — hides every conversation in the list</small>
+        </div>
+        <label class="switch"><input type="checkbox" id="hideChatList" /><span class="slider"></span></label>
+      </div>
+    </section>
+
+    <section>
+      <div class="row">
+        <div class="label">
+          <b>Show only these chats</b>
+          <small>Whitelist mode — hide everything except the names below</small>
+        </div>
+        <label class="switch"><input type="checkbox" id="whitelistMode" /><span class="slider"></span></label>
+      </div>
+      <div class="add-row">
+        <input type="text" id="allowInput" placeholder="e.g. Family" />
+        <button id="allowAdd">Add</button>
+      </div>
+      <ul id="allowList" class="chips"></ul>
+    </section>
+
+    <section>
+      <h2>Hide chats by name</h2>
+      <small class="section-hint">
+        Any chat whose title contains one of these words is hidden.
+        <em>(Ignored while whitelist mode is on.)</em>
+      </small>
+      <div class="add-row">
+        <input type="text" id="blockInput" placeholder="e.g. Work group" />
+        <button id="blockAdd">Add</button>
+      </div>
+      <ul id="blockList" class="chips"></ul>
+    </section>
+
+    <section>
+      <h2>Custom hidden elements</h2>
+      <small class="section-hint">
+        Click <b>Pick element</b>, then click anything in Telegram to hide it.
+      </small>
+      <button id="pickBtn" class="pick-btn">🎯 Pick element to hide</button>
+      <ul id="customList" class="items"></ul>
+    </section>
+
+    <footer>
+      <button id="resetBtn" class="link-btn">Reset all</button>
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
