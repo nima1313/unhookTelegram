@@ -88,6 +88,17 @@ section {
   background: var(--chip);
 }
 
+.hint[hidden] {
+  display: none;
+}
+
+.hint-btn {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 10px;
+}
+
 .row {
   display: flex;
   align-items: center;

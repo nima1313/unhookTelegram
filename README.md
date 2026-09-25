@@ -1,11 +1,12 @@
 # Unhook for Telegram
 
-A Chrome extension (Manifest V3) to control what you see in **Telegram Web**
-(`web.telegram.org`) — like Unhook, but tailored to Telegram and far more
+A Chrome extension (Manifest V3) to control what you see in **Telegram Web K**
+(`web.telegram.org/k/`) — like Unhook, but tailored to Telegram and far more
 customizable. Hide distracting UI, curate which chats appear, and lock yourself
 into a focused view.
 
-Works with both Telegram Web clients: **WebK** (`/k/`) and **WebA** (`/a/`).
+Built for the **WebK** client (`/k/`) only. If you open the extension on WebA
+(`/a/`), the popup offers to switch you over.
 
 ---
 
@@ -18,10 +19,21 @@ extension **auto-opens that folder for you**. Because the filtering is done by
 Telegram itself, it's always correct and complete — no matter how many chats you
 have.
 
-- Clicks the folder tab on load, retrying across the first few seconds to beat
+- Clicks the folder tab on load, re-checking for a few seconds to beat
   Telegram restoring your last-open folder.
-- Plays nicely with **Hide folder tabs**: the tab bar is kept visible just long
-  enough to click your folder, then hidden.
+- Works with **Hide folder tabs** turned on — the folder opens even while the
+  tab bar is hidden.
+
+### Block other chats
+Filters only shape the chat *list* — Telegram still opens any chat you reach
+another way (a channel link inside a message, a mention, search). With **Block
+other chats** on, opening a chat outside your focus set covers the conversation
+with a "Hidden by Focus Mode" screen and a **Back to focus** button.
+
+- The focus set is your **focus folder** (when Focus folder is on) and/or your
+  **whitelist** (when whitelist mode is on). Blocked names are always blocked.
+- Membership comes from Telegram's own folder data, so every chat in the
+  folder counts — not just the ones currently on screen.
 
 ### Presets (one-click toggles)
 - Hide the **search bar**
@@ -34,14 +46,19 @@ have.
 ### Chat filtering by name
 - **Show only these chats** (whitelist) — hide everything except the names you list.
 - **Hide chats by name** (blacklist) — hide any conversation whose title contains
-  a word you add.
+  a word you add. Applies in whitelist mode too.
 - Matching is case-insensitive and substring-based (`family` matches "Family ❤️").
+  `saved messages` matches your Saved Messages chat.
+- Filters your **whole** chat list (not just what's on screen), in every folder,
+  with no gaps — see *How it works*.
 
 ### Element picker
 Click **Pick element to hide**, then click *anything* in Telegram to remove it.
 It generates a CSS selector from what you clicked and remembers it — the
-guaranteed fallback when a preset doesn't match your build, or for hiding
-anything not covered by a preset.
+fallback when a preset doesn't match your build, or for hiding anything not
+covered by a preset. Picking a chat in the list adds it to **Hide chats by
+name** instead (a selector can't cleanly remove one row of Telegram's virtual
+list).
 
 ### Quality-of-life
 - A **master switch** turns everything on/off at once.
@@ -55,7 +72,7 @@ anything not covered by a preset.
 1. Open `chrome://extensions`.
 2. Turn on **Developer mode** (top-right).
 3. Click **Load unpacked** and select this folder.
-4. Open [web.telegram.org](https://web.telegram.org) and click the extension icon.
+4. Open [web.telegram.org/k/](https://web.telegram.org/k/) and click the extension icon.
 
 ---
 
@@ -71,23 +88,22 @@ You'll land straight in your curated, distraction-free view every time.
 
 ## How it works
 
-Telegram Web is a single-page app that constantly re-renders, so the extension:
+- **Presets** and **picked elements** are a stylesheet injected by
+  `src/content.js` — fast, flicker-free, and it survives re-renders.
+- **Focus folder** clicks your folder's tab in `#folders-tabs` on load.
+- **Name filtering** runs in `src/page.js`, inside WebK's own page context.
+  WebK's chat list is *virtual*: only the rows on screen exist in the DOM,
+  each absolutely positioned, so hiding rows would leave gaps and miss every
+  chat that isn't on screen. Instead, `page.js` wraps the function WebK uses to
+  fetch pages of dialogs: it scans the folder's whole list once, keeps the
+  matching chats, and hands Telegram only those. Telegram then renders a
+  normal, gap-free list. Live updates (a new message in a hidden chat) are
+  filtered the same way.
 
-- Injects a stylesheet for the **presets** and **picked elements** (fast,
-  flicker-free, survives re-renders).
-- Runs a `MutationObserver`-driven pass for **name filtering** and the
-  **focus-folder** click, so rules re-apply as the app updates.
-
-### Why "Focus folder" instead of scraping the chat list?
-WebA (and long lists in WebK) **virtualize** the dialog list — chats scrolled
-out of view are removed from the DOM entirely. That makes DOM-based "show only
-these chats" unreliable for long lists (it can only see what's currently
-rendered). The **Focus folder** feature sidesteps this completely by letting
-Telegram do the filtering server-side. The whitelist/blacklist still exist and
-work well for shorter folders.
-
-If a preset ever stops matching after a Telegram update, use the **element
-picker** — it keeps working regardless of class-name changes.
+`page.js` relies on WebK internals (`window.appDialogsManager`). If a Telegram
+update changes them, name filtering stops (a warning is logged to the console)
+while everything else keeps working. If a preset stops matching after an
+update, the **element picker** still works.
 
 ---
 
@@ -96,7 +112,8 @@ picker** — it keeps working regardless of class-name changes.
 | Path | Purpose |
 |------|---------|
 | `manifest.json` | MV3 manifest |
-| `src/content.js` | Core engine: presets, name filtering, focus-folder click, element picker |
+| `src/content.js` | Presets, focus-folder click, element picker; forwards filter settings to `page.js` |
+| `src/page.js` | Name filtering (whitelist / blacklist) and the "block other chats" guard, inside WebK's page context |
 | `popup/` | Extension popup UI (`popup.html` / `popup.css` / `popup.js`) |
 | `icons/` | Toolbar/store icons |
 | `tools/make_icons.py` | Regenerates the icons (`python3 tools/make_icons.py`) |
@@ -106,9 +123,9 @@ picker** — it keeps working regardless of class-name changes.
 ## Notes
 
 - **No data leaves your browser.** All settings live in `chrome.storage.sync`.
-- The extension only runs on `https://web.telegram.org/*`.
-- Some presets target WebA's stable structural classes (`#LeftMainHeader`,
-  `.NewChatButton`, `.DropdownMenu`) and WebK equivalents; the element picker is
+- The extension only runs on `https://web.telegram.org/k/*`.
+- Presets target WebK's stable structural ids/classes (`#column-left`,
+  `#folders-tabs`, `#folders-container`, `#new-menu`, …); the element picker is
   the fallback for anything a preset misses.
 
 ## License

@@ -1,15 +1,13 @@
 /*
- * Unhook for Telegram — content script
+ * Unhook for Telegram — content script (Telegram Web K: web.telegram.org/k/)
  *
  * Strategy:
- *  - Telegram Web ships two clients: WebK (web.telegram.org/k/) and
- *    WebA (web.telegram.org/a/). They use different DOM/class names, so each
- *    preset targets BOTH with a list of candidate selectors. Selectors that
- *    don't match anything are harmless.
  *  - Presets + custom picked selectors are applied purely with CSS (injected
  *    <style>), which is instant and flicker-free.
- *  - "Hide chats by name" can't be done in CSS (no text matching), so it runs
- *    as a JS pass driven by a debounced MutationObserver.
+ *  - "Show only / hide chats by name" is done by page.js in WebK's own page
+ *    world, where it filters the data behind Telegram's virtual chat list.
+ *    This script just forwards the current filter config to it.
+ *  - "Focus folder" clicks a native Telegram folder tab on load.
  */
 
 (() => {
@@ -30,113 +28,40 @@
     whitelistChats: [], // ["family", "work", ...]
     focusFolderMode: false, // auto-open a native Telegram folder
     focusFolderName: "focus mode",
+    blockOtherChats: false, // cover opened chats that aren't in the focus set
     enabled: true,
   };
 
-  // ---- Best-effort preset selectors (WebK + WebA) --------------------------
-  // Grouped generously; a superset is fine because non-matching selectors do
-  // nothing. If Telegram renames something, use the element picker as a fallback.
-  // Note: hideSearch is handled in JS (findLeftSearchInput) because CSS can
-  // only reliably hit the <input>, which leaves the rounded wrapper visible.
+  // ---- WebK preset selectors (verified against the live DOM) ---------------
   const PRESETS = {
+    hideSearch: ["#column-left .sidebar-header .input-search"],
     hideFolders: [
-      // WebK
-      "#folders-container",
-      ".folders-tabs-scrollable",
-      ".folders-tabs",
-      ".chatlist-parts .menu-horizontal-scrollable",
-      // WebA
-      ".ChatFolders .TabList",
-      "#LeftColumn .TabList",
+      "#column-left .folders-tabs-scrollable",
+      "#column-left .folders-tabs-gradient-container",
     ],
-    hideChatList: [
-      // WebK
-      "#chatlist-container",
-      ".chatlist-container",
-      "#column-left .chatlist",
-      // WebA
-      ".chat-list",
-      "#LeftColumn .ChatList",
-    ],
-    hideStories: [
-      // WebK
-      ".stories-list",
-      "#stories-container",
-      // WebA
-      ".StoryRibbon",
-      ".StoryToggler",
-    ],
+    // #folders-container holds one chat list per folder. (Not
+    // .chatlist-container — WebK puts that class on the whole left column.)
+    hideChatList: ["#folders-container"],
+    hideStories: ["#column-left .stories-list"],
+    // The ☰ button only; its sibling back-arrow stays usable during search.
     hideSettings: [
-      // WebA — the top-left hamburger that opens the settings menu
-      "#LeftMainHeader .DropdownMenu",
-      "#LeftColumn .DropdownMenu.main-menu",
-      // WebK
-      ".sidebar-header .btn-menu-toggle",
-      "#column-left .sidebar-header .btn-menu",
+      "#column-left .left-sidebar-burger .btn-menu-toggle",
+      "#column-left .left-sidebar-burger .animated-menu-icon",
     ],
-    hideNewChat: [
-      // WebA — the floating pencil / new-message button
-      ".NewChatButton",
-      "#LeftColumn .FloatingActionButton",
-      // WebK
-      "#new-menu",
-      ".btn-corner",
-    ],
+    hideNewChat: ["#new-menu"],
   };
 
-  // Candidate selectors used by the "hide chats by name" pass.
-  const CHAT_ITEM_SELECTORS = [
-    "a.chatlist-chat",
-    ".chatlist-chat",
-    "li.chatlist-chat",
-    ".ListItem.Chat",
-    ".chat-item-clickable",
-  ];
-  const CHAT_TITLE_SELECTORS = [
-    ".peer-title",
-    ".user-title",
-    ".info .title",
-    ".ChatInfo .title",
-    ".title span",
-  ];
-
-  // Folder / category tabs, for the "open my focus folder" feature.
-  const FOLDER_TAB_SELECTORS = [
-    // WebK
-    ".folders-tabs-scrollable .menu-horizontal-div-item",
-    "#folders-container .menu-horizontal-div-item",
-    ".menu-horizontal-div-item",
-    // WebA
-    ".ChatFolders .Tab",
-    ".TabList .Tab",
-    ".Tab",
-    "[role='tab']",
-  ];
+  // Flags set on <html> by page.js while a name filter is active / loading.
+  const FILTER_CSS = `
+html[data-utg-filtering] #column-left .sidebar-left-contacts-section {
+  display: none !important;
+}
+html[data-utg-loading] #folders-container {
+  visibility: hidden !important;
+}`;
 
   let settings = { ...DEFAULTS };
-
-  // Chat-list containers we may re-stack when filtering hides items.
-  const CHATLIST_CONTAINERS =
-    "ul.chatlist, .chatlist, .chat-list, .ChatList";
-
-  // Telegram positions each chat with an absolute transform:translateY(). When
-  // we hide some, the survivors keep their offsets and leave gaps. This class,
-  // toggled onto the list while filtering, collapses them back to normal flow.
-  const REFLOW_CSS = `
-.utg-reflow {
-  height: auto !important;
-  min-height: 0 !important;
-}
-.utg-reflow > *,
-.utg-reflow a.chatlist-chat,
-.utg-reflow li.chatlist-chat,
-.utg-reflow .chatlist-chat,
-.utg-reflow .ListItem.Chat {
-  position: relative !important;
-  transform: none !important;
-  top: auto !important;
-  left: auto !important;
-}`;
+  let settingsLoaded = false;
 
   // -------------------------------------------------------------------------
   // Style application (presets + custom selectors)
@@ -145,17 +70,9 @@
     if (!settings.enabled) return "";
 
     const groups = [];
-
     for (const key of Object.keys(PRESETS)) {
-      if (!settings[key]) continue;
-      // Don't hide the folder bar until the focus-folder click has landed —
-      // clicking a display:none tab can't switch folders.
-      if (key === "hideFolders" && settings.focusFolderMode && !focusClicked) {
-        continue;
-      }
-      groups.push(...PRESETS[key]);
+      if (settings[key]) groups.push(...PRESETS[key]);
     }
-
     for (const item of settings.customSelectors || []) {
       if (item && item.selector) groups.push(item.selector);
     }
@@ -163,15 +80,7 @@
     const hideCss = groups.length
       ? `${groups.join(",\n")} {\n  display: none !important;\n}`
       : "";
-
-    // Reflow rules are always present but only bite when .utg-reflow is set.
-    return `${hideCss}\n${REFLOW_CSS}`;
-  }
-
-  function updateReflow(active) {
-    document.querySelectorAll(CHATLIST_CONTAINERS).forEach((el) => {
-      el.classList.toggle("utg-reflow", active);
-    });
+    return `${hideCss}\n${FILTER_CSS}`;
   }
 
   function applyStyles() {
@@ -185,395 +94,90 @@
   }
 
   // -------------------------------------------------------------------------
-  // Chat filtering by name (JS, text-based)
-  //   - blacklist mode (default): hide chats matching `blockedChats`
+  // Chat filtering by name — forwarded to page.js
   //   - whitelist mode: show ONLY chats matching `whitelistChats`
+  //   - chats matching `blockedChats` are always hidden (in both modes)
+  // plus the "block other chats" guard, which page.js also runs.
   // -------------------------------------------------------------------------
-  function chatTitle(item) {
-    let titleEl = null;
-    for (const sel of CHAT_TITLE_SELECTORS) {
-      titleEl = item.querySelector(sel);
-      if (titleEl) break;
-    }
-    return (titleEl ? titleEl.textContent : item.textContent)
-      .trim()
-      .toLowerCase();
-  }
-
-  function restoreChat(item) {
-    if (item.dataset.utgHidden === "1") {
-      item.style.display = "";
-      delete item.dataset.utgHidden;
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Preload: Telegram loads the dialog list in pages as you scroll. To filter
-  // the WHOLE list (not just what's on screen) we scroll the list to the
-  // bottom once, forcing every dialog to load into the DOM, then filter.
-  // On WebK loaded rows stay in the DOM, so this is a reliable one-time pass.
-  // -------------------------------------------------------------------------
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  // Only scan the most-recent N chats. Filtering the entire (possibly huge)
-  // dialog list is slow and rarely needed — the top chats are what matter.
-  const SCAN_LIMIT = 200;
-  let preloadDone = false;
-  let preloading = false;
-
-  function scrollParent(el) {
-    let node = el;
-    while (node && node !== document.body) {
-      const s = getComputedStyle(node);
-      if (
-        /(auto|scroll)/.test(s.overflowY) &&
-        node.scrollHeight > node.clientHeight + 4
-      ) {
-        return node;
-      }
-      node = node.parentElement;
-    }
-    return null;
-  }
-
-  // The scroll container of the folder the user is actually looking at.
-  // WebK renders one .chatlist per folder tab; only the active one is visible.
-  function activeScroller() {
-    const lists = [...document.querySelectorAll(CHATLIST_CONTAINERS)].filter(
-      (el) => el.offsetParent !== null && el.clientHeight > 0
+  function sendFilter() {
+    const clean = (list) =>
+      (list || []).map((t) => String(t).trim().toLowerCase()).filter(Boolean);
+    const on = settings.enabled;
+    const allow = on && settings.whitelistMode ? clean(settings.whitelistChats) : [];
+    const block = on ? clean(settings.blockedChats) : [];
+    const guard = {
+      on: on && !!settings.blockOtherChats,
+      folder: settings.focusFolderMode ? settings.focusFolderName || "" : "",
+    };
+    document.dispatchEvent(
+      new CustomEvent("utg:filter", {
+        detail: JSON.stringify({ allow, block, guard }),
+      })
     );
-    for (const el of lists) {
-      const sp = scrollParent(el);
-      if (sp) return sp;
-    }
-    return null;
   }
 
-  function loadedCount(scroller) {
-    return scroller.querySelectorAll(CHAT_ITEM_SELECTORS.join(",")).length;
-  }
-
-  // WebK virtualizes long lists: rows scrolled out of view are unmounted from
-  // the DOM. We defeat that by forcing the scroll viewport tall enough that
-  // Telegram treats every loaded row as "on screen" and keeps it mounted.
-  const ROW_PX = 84;
-  let expandedScroller = null;
-  let savedHeight = "";
-
-  function expandViewport(scroller, rows) {
-    if (expandedScroller && expandedScroller !== scroller) restoreViewport();
-    if (!expandedScroller) {
-      expandedScroller = scroller;
-      savedHeight = scroller.style.height;
-    }
-    scroller.style.height = Math.max(rows, 20) * ROW_PX + "px";
-  }
-
-  function restoreViewport() {
-    if (expandedScroller) {
-      expandedScroller.style.height = savedHeight;
-      expandedScroller = null;
-      savedHeight = "";
-    }
-  }
-
-  // Load the active folder's list (up to SCAN_LIMIT) AND keep every row mounted
-  // by growing the viewport as we go. MUST run with nothing hidden.
-  async function preloadChats() {
-    const scroller = activeScroller();
-    if (!scroller) return;
-
-    let last = -1;
-    let stable = 0;
-    for (let i = 0; i < 60; i++) {
-      const count = loadedCount(scroller);
-      if (count >= SCAN_LIMIT) break;
-      // Viewport a bit taller than what's loaded → pulls in the next page and
-      // keeps the already-loaded rows mounted.
-      expandViewport(scroller, Math.min(count + 40, SCAN_LIMIT + 40));
-      scroller.scrollTop = scroller.scrollHeight;
-      await sleep(260);
-      if (count === last) {
-        if (++stable >= 4) break; // no growth → reached the end of the list
-      } else {
-        stable = 0;
-        last = count;
-      }
-    }
-    // Keep the viewport tall enough to hold every loaded row mounted, then
-    // return to the top for the filtered view.
-    expandViewport(scroller, loadedCount(scroller) + 6);
-    scroller.scrollTop = 0;
-  }
-
-  function applyChatFilter() {
-    const block = (settings.blockedChats || [])
-      .map((t) => String(t).trim().toLowerCase())
-      .filter(Boolean);
-    const allow = (settings.whitelistChats || [])
-      .map((t) => String(t).trim().toLowerCase())
-      .filter(Boolean);
-
-    const useWhitelist =
-      settings.enabled && settings.whitelistMode && allow.length > 0;
-    const useBlacklist =
-      settings.enabled && !settings.whitelistMode && block.length > 0;
-    const filtering = useWhitelist || useBlacklist;
-
-    const items = document.querySelectorAll(CHAT_ITEM_SELECTORS.join(","));
-
-    // Not filtering → undo everything and hand the list back to Telegram.
-    if (!filtering) {
-      updateReflow(false);
-      restoreViewport();
-      items.forEach(restoreChat);
-      return;
-    }
-
-    // Phase 1 — load the whole (top-N) list first, keeping every chat visible
-    // and un-reflowed so the list stays tall enough to scroll & keep rows
-    // mounted. Hiding here would collapse it.
-    if (!preloadDone) {
-      if (!preloading) {
-        preloading = true;
-        preloadChats().finally(() => {
-          preloading = false;
-          preloadDone = true;
-          applyAll(); // everything is now loaded & mounted → hide + reflow
-        });
-      }
-      updateReflow(false);
-      items.forEach(restoreChat);
-      return;
-    }
-
-    // Phase 2 — filter the fully-loaded, still-mounted list.
-    updateReflow(true);
-
-    items.forEach((item) => {
-      const name = chatTitle(item);
-      const hide = useWhitelist
-        ? !allow.some((t) => name.includes(t))
-        : block.some((t) => name.includes(t));
-
-      if (hide) {
-        item.style.display = "none";
-        item.dataset.utgHidden = "1";
-      } else {
-        restoreChat(item);
-      }
-    });
-  }
+  document.addEventListener("utg:page-ready", () => {
+    if (settingsLoaded) sendFilter();
+  });
 
   // -------------------------------------------------------------------------
   // Focus folder: auto-open a native Telegram folder (e.g. "focus mode").
-  // This sidesteps virtualization entirely — Telegram itself shows only that
-  // folder's chats. The tab is clicked even if the folder bar is hidden.
+  // Telegram itself then shows only that folder's chats. Clicking works even
+  // while the folder bar is hidden, so "Hide folder tabs" can stay on.
   // -------------------------------------------------------------------------
+  const FOCUS_TICK_MS = 400;
+  const FOCUS_GIVE_UP_MS = 20000;
+  const FOCUS_STABLE_TICKS = 3; // active this many ticks in a row → done
   let focusTimer = null;
-  let focusClicked = false; // has the focus-folder click landed at least once?
 
   const normLabel = (s) =>
     (s || "").replace(/\s+/g, " ").trim().toLowerCase();
 
-  // Normalized label with a trailing unread count stripped ("focus mode 3").
-  const baseLabel = (s) => normLabel(s).replace(/\s*\d+$/, "").trim();
-
-  // Fire a full pointer+mouse sequence — some WebK builds switch folders on
-  // mousedown/pointer events, not a bare click().
-  function fireClick(el) {
-    const opts = { bubbles: true, cancelable: true, view: window };
-    const types = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"];
-    for (const type of types) {
-      const Ctor =
-        type.startsWith("pointer") && window.PointerEvent
-          ? PointerEvent
-          : MouseEvent;
-      try {
-        el.dispatchEvent(new Ctor(type, opts));
-      } catch (_) {
-        /* ignore unsupported event types */
-      }
-    }
-  }
-
   function findFocusTab(name) {
-    const matches = [];
-
-    // 1) Known folder-tab selectors.
-    for (const el of document.querySelectorAll(FOLDER_TAB_SELECTORS.join(","))) {
-      if (baseLabel(el.textContent) === name) matches.push(el);
+    for (const tab of document.querySelectorAll(
+      "#folders-tabs .menu-horizontal-div-item"
+    )) {
+      const label = tab.querySelector(".text-super");
+      if (label && normLabel(label.textContent) === name) return tab;
     }
-    // 2) Fallback: any small, visible element whose label matches.
-    if (!matches.length) {
-      for (const el of document.querySelectorAll("div,span,a,li,button")) {
-        if (el.getElementsByTagName("*").length > 8) continue;
-        if (baseLabel(el.textContent) === name) matches.push(el);
-      }
-    }
-
-    // Pick the smallest visible match (the tab itself, not a wrapper).
-    let best = null;
-    let bestArea = Infinity;
-    for (const el of matches) {
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) continue;
-      const area = r.width * r.height;
-      if (area < bestArea) {
-        best = el;
-        bestArea = area;
-      }
-    }
-    return best;
+    return null;
   }
 
-  // WebA (React) puts the click handler on an ancestor, not the text node.
-  // Climb to the nearest clickable ancestor (cursor:pointer / role=tab / <a>).
-  function clickableAncestor(el) {
-    let node = el;
-    for (let i = 0; i < 6 && node; i++) {
-      if (
-        node.tagName === "A" ||
-        node.tagName === "BUTTON" ||
-        node.getAttribute("role") === "tab" ||
-        getComputedStyle(node).cursor === "pointer"
-      ) {
-        return node;
-      }
-      node = node.parentElement;
-    }
-    return el;
-  }
-
-  function clickFocusOnce() {
-    if (!settings.enabled || !settings.focusFolderMode) return false;
-    const name = baseLabel(settings.focusFolderName);
-    if (!name) return false;
-    const tab = findFocusTab(name);
-    if (!tab) return false;
-    fireClick(clickableAncestor(tab));
-    return true;
-  }
-
-  // Retry the click across the first few seconds of load. This beats two race
-  // conditions: (1) React hasn't attached its handlers yet, and (2) Telegram
-  // restores the last-open folder ("All") shortly after we click. We stop once
-  // we've clicked a few times after the tab appeared, so we don't fight the
-  // user later on.
+  // Keep re-checking for a few seconds: Telegram restores the last-open folder
+  // shortly after load, which can undo an early click.
   function startFocusRetries() {
     clearTimeout(focusTimer);
-    // Reset: keep the folder bar visible again while we (re)attempt the click.
-    focusClicked = false;
-    applyStyles();
     if (!settings.enabled || !settings.focusFolderMode) return;
+    const name = normLabel(settings.focusFolderName);
+    if (!name) return;
 
-    let attempts = 0;
-    let clickedTimes = 0;
+    const started = Date.now();
+    let stable = 0;
     const tick = () => {
       if (!settings.enabled || !settings.focusFolderMode) return;
-      if (clickFocusOnce()) clickedTimes++;
-      attempts++;
-      // Keep the bar visible & keep clicking until several clicks land (beats
-      // Telegram restoring "All") or we give up after ~9s.
-      if (clickedTimes < 4 && attempts < 20) {
-        focusTimer = setTimeout(tick, 450);
-      } else if (clickedTimes > 0) {
-        // Switched successfully → now it's safe to hide the folder bar.
-        focusClicked = true;
-        applyStyles();
+      const tab = findFocusTab(name);
+      if (tab && tab.classList.contains("active")) {
+        if (++stable >= FOCUS_STABLE_TICKS) return; // settled on our folder
+      } else {
+        stable = 0;
+        if (tab) tab.click();
+      }
+      if (Date.now() - started < FOCUS_GIVE_UP_MS) {
+        focusTimer = setTimeout(tick, FOCUS_TICK_MS);
       }
     };
     tick();
   }
 
   // -------------------------------------------------------------------------
-  // Hide the left-column search bar (JS — hides the wrapper, not just <input>)
-  // -------------------------------------------------------------------------
-  const SEARCH_HINT = /search|جستجو|جست‌وجو|поиск|искать/i;
-  let hiddenSearchEl = null;
-
-  function findLeftSearchInput() {
-    const roots = ["#column-left", "#LeftColumn"];
-    for (const sel of roots) {
-      const root = document.querySelector(sel);
-      if (!root) continue;
-      const inputs = [...root.querySelectorAll("input")];
-      // Prefer an input that clearly is the search field.
-      const match = inputs.find((inp) => {
-        const meta =
-          (inp.getAttribute("placeholder") || "") +
-          " " +
-          (inp.getAttribute("aria-label") || "") +
-          " " +
-          (inp.className || "") +
-          " " +
-          (inp.id || "");
-        return inp.type === "search" || SEARCH_HINT.test(meta);
-      });
-      if (match) return match;
-      // Fallback: first text input in the column (usually the search box).
-      const fallback = root.querySelector(
-        "input[type='text'], input:not([type])"
-      );
-      if (fallback) return fallback;
-    }
-    return null;
-  }
-
-  function applySearchHide() {
-    // Reset previous hide first.
-    if (hiddenSearchEl) {
-      hiddenSearchEl.style.display = "";
-      delete hiddenSearchEl.dataset.utgSearch;
-      hiddenSearchEl = null;
-    }
-    if (!settings.enabled || !settings.hideSearch) return;
-
-    const input = findLeftSearchInput();
-    if (!input) return;
-
-    // Hide the rounded wrapper around the input, but never a container that
-    // also holds the hamburger/menu button (that would remove navigation).
-    let target = input;
-    const parent = input.parentElement;
-    if (
-      parent &&
-      !parent.querySelector("button") &&
-      parent.children.length <= 8
-    ) {
-      target = parent;
-    }
-    target.style.display = "none";
-    target.dataset.utgSearch = "1";
-    hiddenSearchEl = target;
-  }
-
-  // -------------------------------------------------------------------------
-  // Observe the SPA so rules survive re-renders / navigation
-  // -------------------------------------------------------------------------
-  let scheduled = false;
-  function scheduleApply() {
-    if (scheduled) return;
-    scheduled = true;
-    requestAnimationFrame(() => {
-      scheduled = false;
-      applyChatFilter();
-      applySearchHide();
-    });
-  }
-
-  function startObserver() {
-    const observer = new MutationObserver(scheduleApply);
-    observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-  }
-
-  // -------------------------------------------------------------------------
   // Element picker (click-to-hide) — the robust fallback for any element
   // -------------------------------------------------------------------------
   let picker = null;
+
+  // Classes that make a poor selector: WebK's hashed CSS-module classes
+  // (e.g. "_Item_5idej_1") change every build; state classes come and go.
+  const UNSTABLE_CLASS =
+    /^(_|utg-|is-|active$|rp$|hover-effect$|scrolled-|animate)/;
 
   function cssPath(el) {
     if (!el || el.nodeType !== 1) return "";
@@ -588,7 +192,7 @@
       }
       let sel = node.nodeName.toLowerCase();
       const classes = [...node.classList]
-        .filter((c) => !c.startsWith("utg-"))
+        .filter((c) => !UNSTABLE_CLASS.test(c))
         .slice(0, 2);
       if (classes.length) {
         sel += "." + classes.map((c) => CSS.escape(c)).join(".");
@@ -608,11 +212,18 @@
     return parts.join(" > ");
   }
 
+  // WebK reacts to pointerdown/mousedown (e.g. opening a chat), so swallow
+  // those too while picking — not just the click.
+  const SWALLOWED = ["pointerdown", "mousedown", "pointerup", "mouseup"];
+
   function stopPicker() {
     if (!picker) return;
     document.removeEventListener("mousemove", picker.onMove, true);
     document.removeEventListener("click", picker.onClick, true);
     document.removeEventListener("keydown", picker.onKey, true);
+    for (const type of SWALLOWED) {
+      document.removeEventListener(type, picker.swallow, true);
+    }
     picker.overlay.remove();
     picker.banner.remove();
     picker = null;
@@ -658,8 +269,17 @@
     let current = null;
 
     const onMove = (e) => {
-      const el = document.elementFromPoint(e.clientX, e.clientY);
+      let el = document.elementFromPoint(e.clientX, e.clientY);
       if (!el || el === overlay || el === banner) return;
+      // WebK lays an invisible ripple layer over buttons/rows; pick what's
+      // underneath it instead.
+      if (el.classList.contains("c-ripple") && el.parentElement) {
+        el = el.parentElement;
+      }
+      // A chat row can't be hidden by selector (the virtual list recycles
+      // rows and would leave a gap), so highlight the whole row and turn the
+      // pick into a "hide chats by name" entry.
+      el = el.closest("#folders-container a.chatlist-chat") || el;
       current = el;
       const r = el.getBoundingClientRect();
       overlay.style.display = "block";
@@ -669,12 +289,27 @@
       overlay.style.height = r.height + "px";
     };
 
-    const onClick = (e) => {
+    const swallow = (e) => {
       e.preventDefault();
       e.stopPropagation();
+    };
+
+    const onClick = (e) => {
+      swallow(e);
       const el = current;
       stopPicker();
       if (!el) return;
+
+      if (el.matches("a.chatlist-chat")) {
+        const titleEl = el.querySelector(".peer-title");
+        const title = titleEl ? titleEl.textContent.trim() : "";
+        const blocked = settings.blockedChats || [];
+        if (title && !blocked.includes(title)) {
+          chrome.storage.sync.set({ blockedChats: [...blocked, title] });
+        }
+        return;
+      }
+
       const selector = cssPath(el);
       if (!selector) return;
       const note = (el.textContent || el.className || el.nodeName)
@@ -694,46 +329,42 @@
       }
     };
 
-    picker = { overlay, banner, onMove, onClick, onKey };
+    picker = { overlay, banner, onMove, onClick, onKey, swallow };
     document.addEventListener("mousemove", onMove, true);
     document.addEventListener("click", onClick, true);
     document.addEventListener("keydown", onKey, true);
+    for (const type of SWALLOWED) {
+      document.addEventListener(type, swallow, true);
+    }
   }
 
   // -------------------------------------------------------------------------
   // Wiring
   // -------------------------------------------------------------------------
-  function applyAll() {
-    applyStyles();
-    applyChatFilter();
-    applySearchHide();
-  }
-
   chrome.storage.sync.get(DEFAULTS, (stored) => {
     settings = { ...DEFAULTS, ...stored };
+    settingsLoaded = true;
     applyStyles(); // instant, even before body exists
-    const boot = () => {
-      applyAll();
-      startObserver();
-      startFocusRetries();
-    };
+    sendFilter();
     if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", boot);
+      document.addEventListener("DOMContentLoaded", startFocusRetries);
     } else {
-      boot();
+      startFocusRetries();
     }
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "sync") return;
     for (const [key, { newValue }] of Object.entries(changes)) {
-      settings[key] = newValue;
+      settings[key] = newValue === undefined ? DEFAULTS[key] : newValue;
     }
-    // Membership/settings changed → rescan the list.
-    preloadDone = false;
-    applyAll();
-    // Re-open the focus folder if that setting was just changed/toggled.
-    if ("focusFolderMode" in changes || "focusFolderName" in changes) {
+    applyStyles();
+    sendFilter();
+    if (
+      "focusFolderMode" in changes ||
+      "focusFolderName" in changes ||
+      "enabled" in changes
+    ) {
       startFocusRetries();
     }
   });

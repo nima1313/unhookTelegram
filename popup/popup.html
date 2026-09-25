@@ -19,7 +19,8 @@
     </header>
 
     <p class="hint" id="not-telegram" hidden>
-      Open <b>web.telegram.org</b> to use these controls.
+      <span id="not-telegram-msg">Open Telegram Web K to use these controls.</span>
+      <button id="openWebK" class="hint-btn">Open web.telegram.org/k/</button>
     </p>
 
     <section class="focus">
@@ -36,6 +37,13 @@
         name above and the extension opens it automatically — even with the
         folder tabs hidden. No list scanning, so it always works.
       </small>
+      <div class="row" style="margin-top: 12px">
+        <div class="label">
+          <b>Block other chats</b>
+          <small>If you open a chat outside your focus folder / whitelist (e.g. a channel link in a message), cover it instead of showing it</small>
+        </div>
+        <label class="switch"><input type="checkbox" id="blockOtherChats" /><span class="slider"></span></label>
+      </div>
     </section>
 
     <section>
@@ -88,7 +96,7 @@
       <div class="row">
         <div class="label">
           <b>Show only these chats</b>
-          <small>Whitelist mode — hide everything except the names below</small>
+          <small>Whitelist mode — hide every chat except the names below (checks your whole chat list)</small>
         </div>
         <label class="switch"><input type="checkbox" id="whitelistMode" /><span class="slider"></span></label>
       </div>
@@ -102,8 +110,8 @@
     <section>
       <h2>Hide chats by name</h2>
       <small class="section-hint">
-        Any chat whose title contains one of these words is hidden.
-        <em>(Ignored while whitelist mode is on.)</em>
+        Any chat whose title contains one of these words is hidden — in
+        whitelist mode too.
       </small>
       <div class="add-row">
         <input type="text" id="blockInput" placeholder="e.g. Work group" />
@@ -116,6 +124,7 @@
       <h2>Custom hidden elements</h2>
       <small class="section-hint">
         Click <b>Pick element</b>, then click anything in Telegram to hide it.
+        Picking a chat adds it to <b>Hide chats by name</b>.
       </small>
       <button id="pickBtn" class="pick-btn">🎯 Pick element to hide</button>
       <ul id="customList" class="items"></ul>

@@ -14,6 +14,7 @@ const DEFAULTS = {
   whitelistChats: [],
   focusFolderMode: false,
   focusFolderName: "focus mode",
+  blockOtherChats: false,
 };
 
 const TOGGLES = [
@@ -26,6 +27,7 @@ const TOGGLES = [
   "hideNewChat",
   "whitelistMode",
   "focusFolderMode",
+  "blockOtherChats",
 ];
 
 let state = { ...DEFAULTS };
@@ -147,22 +149,43 @@ function wireChipAdd(inputId, btnId, key, listId, emptyMsg) {
   });
 }
 
-async function activeTelegramTab() {
+const WEBK_URL = "https://web.telegram.org/k/";
+
+async function currentTab() {
   const [tab] = await chrome.tabs.query({
     active: true,
     currentWindow: true,
   });
-  if (!tab || !tab.url || !tab.url.startsWith("https://web.telegram.org")) {
-    return null;
-  }
+  return tab || null;
+}
+
+async function activeTelegramTab() {
+  const tab = await currentTab();
+  if (!tab || !tab.url || !tab.url.startsWith(WEBK_URL)) return null;
   return tab;
+}
+
+// Not on WebK → explain why, and offer to switch (from /a/ or elsewhere).
+async function showNotTelegramHint() {
+  const tab = await currentTab();
+  const onOtherClient =
+    tab && tab.url && tab.url.startsWith("https://web.telegram.org");
+  document.getElementById("not-telegram-msg").textContent = onOtherClient
+    ? "This extension works with Telegram Web K only."
+    : "Open Telegram Web K to use these controls.";
+  document.getElementById("not-telegram").hidden = false;
+  document.getElementById("openWebK").onclick = () => {
+    if (onOtherClient) chrome.tabs.update(tab.id, { url: WEBK_URL });
+    else chrome.tabs.create({ url: WEBK_URL });
+    window.close();
+  };
 }
 
 function wirePicker() {
   document.getElementById("pickBtn").addEventListener("click", async () => {
     const tab = await activeTelegramTab();
     if (!tab) {
-      document.getElementById("not-telegram").hidden = false;
+      showNotTelegramHint();
       return;
     }
     chrome.tabs.sendMessage(tab.id, { type: "utg-start-picker" }, () => {
@@ -205,7 +228,5 @@ chrome.storage.onChanged.addListener((changes, area) => {
   wireReset();
   render();
 
-  if (!(await activeTelegramTab())) {
-    document.getElementById("not-telegram").hidden = false;
-  }
+  if (!(await activeTelegramTab())) showNotTelegramHint();
 })();

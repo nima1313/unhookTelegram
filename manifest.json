@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Unhook for Telegram",
-  "version": "1.0.0",
-  "description": "Control what you see in Telegram Web. Hide the search bar, folder/category tabs, chat list, stories, specific chats by name, or any element you pick.",
+  "version": "2.0.0",
+  "description": "Control what you see in Telegram Web K (web.telegram.org/k/). Hide the search bar, folder tabs, chat list, stories, specific chats by name, or any element you pick.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
-    "https://web.telegram.org/*"
+    "https://web.telegram.org/k/*"
   ],
   "icons": {
     "16": "icons/icon16.png",
@@ -25,7 +25,14 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://web.telegram.org/*"],
+      "matches": ["https://web.telegram.org/k/*"],
+      "js": ["src/page.js"],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    },
+    {
+      "matches": ["https://web.telegram.org/k/*"],
       "js": ["src/content.js"],
       "run_at": "document_start",
       "all_frames": false
