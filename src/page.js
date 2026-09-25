@@ -12,8 +12,9 @@
  * both: the fetcher scans the whole dialog list once and serves its pages out
  * of the matching chats only, so Telegram itself renders a gap-free list.
  *
- * It also runs the "block other chats" guard, which covers any open chat that
- * isn't part of the focus set (see below).
+ * It also loads every chat of the focus folder (WebK skips folder chats it
+ * hasn't cached) and runs the "block other chats" guard, which covers any
+ * open chat that isn't part of the focus set (see below).
  *
  * Config arrives from content.js as a `utg:filter` CustomEvent on document.
  */
@@ -96,7 +97,7 @@
   // must be consistent slices of the same filtered list. Dialog order changes
   // as messages arrive, hence the short lifetime.
   const CACHE_MS = 30000;
-  const scans = new WeakMap(); // list -> { key, at, promise }
+  let scans = new WeakMap(); // list -> { key, at, promise }
 
   function filteredDialogs(list, origFetch) {
     const hit = scans.get(list);
@@ -208,22 +209,70 @@
     return (im && im.chat && im.chat.peerId) || 0;
   }
 
-  // The folder's dialog index key (e.g. "index_5"). A dialog belongs to the
-  // folder exactly when it has a value under that key.
-  async function folderIndexKey(name) {
+  // The folder whose tab label is `name`: its filter (explicit chat list) and
+  // dialog index key (e.g. "index_5" — a dialog belongs to the folder exactly
+  // when it has a value under that key). Null if there's no such tab yet.
+  async function findFolder(name) {
     const tab = [
       ...document.querySelectorAll("#folders-tabs .menu-horizontal-div-item"),
     ].find((t) => {
       const label = t.querySelector(".text-super");
       return label && label.textContent.replace(/\s+/g, " ").trim().toLowerCase() === name;
     });
-    if (!tab) return null;
-    const id = Number(tab.dataset.filterId);
     const dm = window.appDialogsManager;
-    if (dm && dm.xds && dm.xds[id]) return dm.xds[id].indexKey;
-    const filter = await dm.managers.filtersStorage.getFilter(id);
-    return filter && filter.localId !== undefined ? `index_${filter.localId}` : null;
+    if (!tab || !dm || !dm.managers) return null;
+    const filter = await dm.managers.filtersStorage.getFilter(Number(tab.dataset.filterId));
+    if (!filter || filter.localId === undefined) return null;
+    return { filter, key: `index_${filter.localId}` };
   }
+
+  // ---- Focus folder: load all of its chats ------------------------------------
+  // WebK lists a folder's chats only if their dialogs are already in its local
+  // cache, and never fetches the rest — so older chats added to the folder
+  // silently never show up. Load those dialogs explicitly; WebK then adds
+  // them to the folder list by itself.
+  let hydrated = ""; // folder name already loaded this page session
+  let hydrating = false;
+
+  async function hydrateFolder(name) {
+    const folder = await findFolder(name);
+    if (!folder) return null; // tabs not rendered yet — retry later
+    const { filter } = folder;
+    const mm = window.appDialogsManager.managers.appMessagesManager;
+    const ids = [...(filter.pinnedPeerIds || []), ...(filter.includePeerIds || [])];
+    const inputs = [...(filter.pinned_peers || []), ...(filter.include_peers || [])];
+    const missing = [];
+    for (let i = 0; i < ids.length; i++) {
+      if (inputs[i] && !(await mm.getDialogOnly(ids[i]))) missing.push(inputs[i]);
+    }
+    // The input peers carry access hashes, so this works even for chats WebK
+    // has never seen.
+    await Promise.all(missing.map((p) => mm.reloadConversation(p).catch(() => {})));
+    return { loaded: missing.length };
+  }
+
+  function maybeHydrate() {
+    const name = guard.folder;
+    if (!name || name === hydrated || hydrating || !window.appDialogsManager) return;
+    hydrating = true;
+    hydrateFolder(name)
+      .then((done) => {
+        if (!done) return;
+        hydrated = name;
+        // A name-filtered list serves a cached scan — rebuild it to include
+        // the chats that were just loaded.
+        if (done.loaded && patched && filtering()) {
+          scans = new WeakMap();
+          refreshLists();
+        }
+      })
+      .catch((e) => console.warn("[Unhook for Telegram] could not load folder chats", e))
+      .finally(() => {
+        hydrating = false;
+      });
+  }
+
+  setInterval(maybeHydrate, 500);
 
   async function guardAllows(peerId) {
     const title = peerTitle(peerId);
@@ -232,10 +281,13 @@
 
     const checks = [];
     if (guard.folder) {
-      const key = await folderIndexKey(guard.folder);
+      const folder = await findFolder(guard.folder);
       // Folder not found (renamed / not loaded yet) → fail open.
-      if (!key) return true;
+      if (!folder) return true;
+      const { filter, key } = folder;
       checks.push(async () => {
+        const listed = [...(filter.pinnedPeerIds || []), ...(filter.includePeerIds || [])];
+        if (listed.some((id) => String(id) === String(peerId))) return true;
         const dialog = await window.appDialogsManager.managers.appMessagesManager.getDialogOnly(
           peerId
         );

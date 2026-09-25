@@ -23,6 +23,9 @@ have.
   Telegram restoring your last-open folder.
 - Works with **Hide folder tabs** turned on — the folder opens even while the
   tab bar is hidden.
+- Loads every chat in the folder. Telegram Web K on its own only lists folder
+  chats it already has cached, so older chats you added to the folder can go
+  missing; the extension fetches those so the folder is always complete.
 
 ### Block other chats
 Filters only shape the chat *list* — Telegram still opens any chat you reach
@@ -90,7 +93,9 @@ You'll land straight in your curated, distraction-free view every time.
 
 - **Presets** and **picked elements** are a stylesheet injected by
   `src/content.js` — fast, flicker-free, and it survives re-renders.
-- **Focus folder** clicks your folder's tab in `#folders-tabs` on load.
+- **Focus folder** clicks your folder's tab in `#folders-tabs` on load, and
+  `src/page.js` loads any folder chats missing from WebK's local cache
+  (`appMessagesManager.reloadConversation`), which WebK then adds to the list.
 - **Name filtering** runs in `src/page.js`, inside WebK's own page context.
   WebK's chat list is *virtual*: only the rows on screen exist in the DOM,
   each absolutely positioned, so hiding rows would leave gaps and miss every
