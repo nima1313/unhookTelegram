@@ -204,6 +204,14 @@
   let guardPeer = null; // peer the current verdict is for
   let guardToken = 0; // discards stale async verdicts
 
+  // A short, deliberate way out: the overlay's "1 minute" button lifts the
+  // guard until breakUntil, with a countdown on screen, and then it comes back
+  // by itself. The break lives only in the page, so a reload ends it early.
+  const BREAK_MS = 60 * 1000;
+  const BREAK_ID = "utg-break";
+  let breakUntil = 0;
+  const onBreak = () => Date.now() < breakUntil;
+
   function openPeerId() {
     const im = window.appImManager;
     return (im && im.chat && im.chat.peerId) || 0;
@@ -365,7 +373,26 @@
         hideGuard();
         window.appImManager.setPeer({ peerId: 0 }); // close the chat
       });
-      box.append(icon, title, sub, btn);
+      const pause = document.createElement("button");
+      pause.textContent = "Unlock for 1 minute";
+      Object.assign(pause.style, {
+        display: "block",
+        margin: "14px auto 0",
+        background: "none",
+        color: "#fff",
+        opacity: "0.7",
+        border: "1px solid rgba(255,255,255,0.35)",
+        borderRadius: "20px",
+        padding: "8px 16px",
+        font: "13px system-ui, sans-serif",
+        cursor: "pointer",
+      });
+      pause.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        startBreak();
+      });
+      box.append(icon, title, sub, btn, pause);
       ov.appendChild(box);
       document.body.appendChild(ov);
     }
@@ -377,9 +404,45 @@
     if (ov) ov.remove();
   }
 
+  function startBreak() {
+    breakUntil = Date.now() + BREAK_MS;
+    hideGuard();
+    showBreak();
+  }
+
+  // The countdown pill. It ignores the pointer, so nothing under it is blocked.
+  function showBreak() {
+    let pill = document.getElementById(BREAK_ID);
+    if (!onBreak() || !guard.on) {
+      if (pill) pill.remove();
+      return;
+    }
+    if (!pill) {
+      pill = document.createElement("div");
+      pill.id = BREAK_ID;
+      Object.assign(pill.style, {
+        position: "fixed",
+        zIndex: "2147483001",
+        bottom: "84px",
+        left: "50%",
+        transform: "translateX(-50%)",
+        pointerEvents: "none",
+        background: "rgba(24,34,45,0.9)",
+        color: "#fff",
+        borderRadius: "16px",
+        padding: "6px 14px",
+        font: "13px/1.4 system-ui, sans-serif",
+      });
+      document.body.appendChild(pill);
+    }
+    const left = Math.ceil((breakUntil - Date.now()) / 1000);
+    const text = `Focus Mode back in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+    if (pill.textContent !== text) pill.textContent = text;
+  }
+
   // Re-evaluate when the open chat changes (or `force` after a config change).
   function checkGuard(force) {
-    const peerId = guard.on ? openPeerId() : 0;
+    const peerId = guard.on && !onBreak() ? openPeerId() : 0;
     if (!peerId) {
       guardPeer = null;
       guardToken++;
@@ -404,6 +467,7 @@
 
   setInterval(() => {
     if (guard.on && window.appImManager) checkGuard(false);
+    showBreak();
   }, GUARD_TICK_MS);
 
   // ---- Config channel -------------------------------------------------------
@@ -423,15 +487,19 @@
 
     const g = (next && next.guard) || {};
     guard = { on: !!g.on, folder: String(g.folder || "").trim().toLowerCase() };
-    checkGuard(true);
 
     const key = JSON.stringify({ allow, block });
-    if (key === configKey) return;
+    if (key === configKey) {
+      checkGuard(true);
+      return;
+    }
 
     const wasFiltering = filtering();
     config = { allow, block };
     configKey = key;
     setFilteringFlag();
+    // After config is updated: the guard judges by the new allow/block lists.
+    checkGuard(true);
 
     if (!wasFiltering && !filtering()) return; // still off — nothing to redo
     if (patched) {
