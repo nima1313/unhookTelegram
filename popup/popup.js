@@ -58,13 +58,13 @@ const BREAK_MS = 60 * 1000;
 let breakUntil = 0;
 let breakTimer = null;
 
-// The button only makes sense while Block other chats is actually blocking.
+// Pauses the whole extension (see content.js), so it needs the extension on.
 // During a break it turns into the countdown.
 function renderBreak() {
   const btn = document.getElementById("breakBtn");
   const status = document.getElementById("breakStatus");
   const left = Math.ceil((breakUntil - Date.now()) / 1000);
-  const locking = state.enabled && state.blockOtherChats;
+  const locking = state.enabled;
   clearTimeout(breakTimer);
   if (left > 0 && locking) {
     btn.disabled = true;
@@ -76,7 +76,7 @@ function renderBreak() {
   btn.textContent = "Unlock for 1 minute";
   btn.disabled = !locking;
   status.hidden = locking;
-  status.textContent = "Turn on Block other chats to use this.";
+  status.textContent = "Turn Unhook on (the switch at the top) to use this.";
 }
 
 function wireBreak() {

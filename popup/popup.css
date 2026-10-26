@@ -315,7 +315,13 @@ footer {
   filter: none;
 }
 
-#breakStatus {
+#breakStatus,
+.break-hint {
   margin: 6px 0 0;
   text-align: center;
+}
+
+/* .section-hint's display:block would otherwise beat the hidden attribute. */
+[hidden] {
+  display: none !important;
 }

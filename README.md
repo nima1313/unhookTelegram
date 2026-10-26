@@ -33,10 +33,11 @@ another way (a channel link inside a message, a mention, search). With **Block
 other chats** on, opening a chat outside your focus set covers the conversation
 with a "Hidden by Focus Mode" screen and a **Back to focus** button.
 
-- **Unlock for 1 minute** (in the popup, under Block other chats) lifts the
-  block for 60 seconds, with a countdown in the popup and at the bottom of
-  Telegram; then it comes back by itself, even if you are still in the chat.
-  For the times you really need to step out of focus briefly.
+- **Unlock for 1 minute** (in the popup, under Block other chats) switches the
+  whole extension off for 60 seconds — folder tabs, search and every chat come
+  back — with a countdown in the popup and at the bottom of Telegram. Then it
+  all returns by itself and the focus folder reopens, even if you are still in
+  another chat. For the times you really need to step out of focus briefly.
 
 - The focus set is your **focus folder** (when Focus folder is on) and/or your
   **whitelist** (when whitelist mode is on). Blocked names are always blocked.

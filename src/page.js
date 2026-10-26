@@ -204,9 +204,10 @@
   let guardPeer = null; // peer the current verdict is for
   let guardToken = 0; // discards stale async verdicts
 
-  // A short, deliberate way out: the popup's "Unlock for 1 minute" sets
-  // breakUntil (it arrives with the config), the guard stays off until then
-  // with a countdown on screen, and then it comes back by itself.
+  // A short, deliberate way out: the popup's "Unlock for 1 minute" pauses the
+  // whole extension (content.js turns everything off, the guard included)
+  // until breakUntil, which arrives with the config only to draw the
+  // countdown on screen.
   const BREAK_ID = "utg-break";
   let breakUntil = 0;
   const onBreak = () => Date.now() < breakUntil;
@@ -387,7 +388,7 @@
   // The countdown pill. It ignores the pointer, so nothing under it is blocked.
   function showBreak() {
     let pill = document.getElementById(BREAK_ID);
-    if (!onBreak() || !guard.on) {
+    if (!onBreak()) {
       if (pill) pill.remove();
       return;
     }

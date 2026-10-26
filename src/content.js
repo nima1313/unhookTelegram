@@ -62,15 +62,39 @@ html[data-utg-loading] #folders-container {
 
   let settings = { ...DEFAULTS };
   let settingsLoaded = false;
-  // Set by the popup's "Unlock for 1 minute". Kept in storage.local, not
-  // sync: a break on this computer shouldn't unlock your other devices.
+  // Set by the popup's "Unlock for 1 minute". Until then the extension acts
+  // as if switched off — tabs, search and every chat come back — and then it
+  // all returns by itself and the focus folder is reopened. Kept in
+  // storage.local, not sync: a break here shouldn't unlock your other devices.
   let focusBreakUntil = 0;
+  let breakTimer = null;
+  const onBreak = () => Date.now() < focusBreakUntil;
+  const active = () => settings.enabled && !onBreak();
+
+  function setBreak(until) {
+    focusBreakUntil = Number(until) || 0;
+    clearTimeout(breakTimer);
+    if (onBreak()) {
+      breakTimer = setTimeout(endBreak, focusBreakUntil - Date.now() + 50);
+    }
+    if (settingsLoaded) {
+      applyStyles();
+      sendFilter();
+      startFocusRetries();
+    }
+  }
+
+  function endBreak() {
+    applyStyles();
+    sendFilter();
+    startFocusRetries();
+  }
 
   // -------------------------------------------------------------------------
   // Style application (presets + custom selectors)
   // -------------------------------------------------------------------------
   function buildCss() {
-    if (!settings.enabled) return "";
+    if (!active()) return "";
 
     const groups = [];
     for (const key of Object.keys(PRESETS)) {
@@ -105,13 +129,14 @@ html[data-utg-loading] #folders-container {
   function sendFilter() {
     const clean = (list) =>
       (list || []).map((t) => String(t).trim().toLowerCase()).filter(Boolean);
-    const on = settings.enabled;
+    const on = active();
     const allow = on && settings.whitelistMode ? clean(settings.whitelistChats) : [];
     const block = on ? clean(settings.blockedChats) : [];
     const guard = {
       on: on && !!settings.blockOtherChats,
       folder: settings.focusFolderMode ? settings.focusFolderName || "" : "",
-      breakUntil: focusBreakUntil,
+      // Only for the countdown on the page; the break itself is `on`.
+      breakUntil: settings.enabled ? focusBreakUntil : 0,
     };
     document.dispatchEvent(
       new CustomEvent("utg:filter", {
@@ -151,14 +176,14 @@ html[data-utg-loading] #folders-container {
   // shortly after load, which can undo an early click.
   function startFocusRetries() {
     clearTimeout(focusTimer);
-    if (!settings.enabled || !settings.focusFolderMode) return;
+    if (!active() || !settings.focusFolderMode) return;
     const name = normLabel(settings.focusFolderName);
     if (!name) return;
 
     const started = Date.now();
     let stable = 0;
     const tick = () => {
-      if (!settings.enabled || !settings.focusFolderMode) return;
+      if (!active() || !settings.focusFolderMode) return;
       const tab = findFocusTab(name);
       if (tab && tab.classList.contains("active")) {
         if (++stable >= FOCUS_STABLE_TICKS) return; // settled on our folder
@@ -358,14 +383,12 @@ html[data-utg-loading] #folders-container {
   });
 
   chrome.storage.local.get({ focusBreakUntil: 0 }, (stored) => {
-    focusBreakUntil = stored.focusBreakUntil || 0;
-    if (settingsLoaded) sendFilter();
+    setBreak(stored.focusBreakUntil);
   });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && "focusBreakUntil" in changes) {
-      focusBreakUntil = changes.focusBreakUntil.newValue || 0;
-      if (settingsLoaded) sendFilter();
+      setBreak(changes.focusBreakUntil.newValue);
       return;
     }
     if (area !== "sync") return;
