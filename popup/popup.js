@@ -50,6 +50,41 @@ function render() {
   renderChips("blockList", "blockedChats", "No blocked names yet.");
   renderChips("allowList", "whitelistChats", "No whitelisted names yet.");
   renderCustom();
+  renderBreak();
+}
+
+// ---- Focus break --------------------------------------------------------------
+const BREAK_MS = 60 * 1000;
+let breakUntil = 0;
+let breakTimer = null;
+
+// The button only makes sense while Block other chats is actually blocking.
+// During a break it turns into the countdown.
+function renderBreak() {
+  const btn = document.getElementById("breakBtn");
+  const status = document.getElementById("breakStatus");
+  const left = Math.ceil((breakUntil - Date.now()) / 1000);
+  const locking = state.enabled && state.blockOtherChats;
+  clearTimeout(breakTimer);
+  if (left > 0 && locking) {
+    btn.disabled = true;
+    btn.textContent = `Unlocked — focus back in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+    status.hidden = true;
+    breakTimer = setTimeout(renderBreak, 250);
+    return;
+  }
+  btn.textContent = "Unlock for 1 minute";
+  btn.disabled = !locking;
+  status.hidden = locking;
+  status.textContent = "Turn on Block other chats to use this.";
+}
+
+function wireBreak() {
+  document.getElementById("breakBtn").addEventListener("click", () => {
+    breakUntil = Date.now() + BREAK_MS;
+    chrome.storage.local.set({ focusBreakUntil: breakUntil });
+    renderBreak();
+  });
 }
 
 function renderChips(listId, key, emptyMsg) {
@@ -206,6 +241,11 @@ function wireReset() {
 
 // Reflect external changes (e.g. picker adding a selector) live.
 chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && "focusBreakUntil" in changes) {
+    breakUntil = changes.focusBreakUntil.newValue || 0;
+    renderBreak();
+    return;
+  }
   if (area !== "sync") return;
   for (const [k, { newValue }] of Object.entries(changes)) {
     state[k] = newValue;
@@ -217,6 +257,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 (async () => {
   const stored = await chrome.storage.sync.get(DEFAULTS);
   state = { ...DEFAULTS, ...stored };
+  breakUntil = (await chrome.storage.local.get({ focusBreakUntil: 0 })).focusBreakUntil || 0;
 
   wireToggles();
   wireFolderName();
@@ -225,6 +266,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   wireChipAdd("allowInput", "allowAdd", "whitelistChats", "allowList",
     "No whitelisted names yet.");
   wirePicker();
+  wireBreak();
   wireReset();
   render();
 

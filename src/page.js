@@ -204,10 +204,9 @@
   let guardPeer = null; // peer the current verdict is for
   let guardToken = 0; // discards stale async verdicts
 
-  // A short, deliberate way out: the overlay's "1 minute" button lifts the
-  // guard until breakUntil, with a countdown on screen, and then it comes back
-  // by itself. The break lives only in the page, so a reload ends it early.
-  const BREAK_MS = 60 * 1000;
+  // A short, deliberate way out: the popup's "Unlock for 1 minute" sets
+  // breakUntil (it arrives with the config), the guard stays off until then
+  // with a countdown on screen, and then it comes back by itself.
   const BREAK_ID = "utg-break";
   let breakUntil = 0;
   const onBreak = () => Date.now() < breakUntil;
@@ -373,26 +372,7 @@
         hideGuard();
         window.appImManager.setPeer({ peerId: 0 }); // close the chat
       });
-      const pause = document.createElement("button");
-      pause.textContent = "Unlock for 1 minute";
-      Object.assign(pause.style, {
-        display: "block",
-        margin: "14px auto 0",
-        background: "none",
-        color: "#fff",
-        opacity: "0.7",
-        border: "1px solid rgba(255,255,255,0.35)",
-        borderRadius: "20px",
-        padding: "8px 16px",
-        font: "13px system-ui, sans-serif",
-        cursor: "pointer",
-      });
-      pause.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        startBreak();
-      });
-      box.append(icon, title, sub, btn, pause);
+      box.append(icon, title, sub, btn);
       ov.appendChild(box);
       document.body.appendChild(ov);
     }
@@ -402,12 +382,6 @@
   function hideGuard() {
     const ov = document.getElementById(GUARD_ID);
     if (ov) ov.remove();
-  }
-
-  function startBreak() {
-    breakUntil = Date.now() + BREAK_MS;
-    hideGuard();
-    showBreak();
   }
 
   // The countdown pill. It ignores the pointer, so nothing under it is blocked.
@@ -487,6 +461,8 @@
 
     const g = (next && next.guard) || {};
     guard = { on: !!g.on, folder: String(g.folder || "").trim().toLowerCase() };
+    breakUntil = Number(g.breakUntil) || 0;
+    showBreak();
 
     const key = JSON.stringify({ allow, block });
     if (key === configKey) {

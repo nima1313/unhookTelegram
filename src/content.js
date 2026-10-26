@@ -62,6 +62,9 @@ html[data-utg-loading] #folders-container {
 
   let settings = { ...DEFAULTS };
   let settingsLoaded = false;
+  // Set by the popup's "Unlock for 1 minute". Kept in storage.local, not
+  // sync: a break on this computer shouldn't unlock your other devices.
+  let focusBreakUntil = 0;
 
   // -------------------------------------------------------------------------
   // Style application (presets + custom selectors)
@@ -108,6 +111,7 @@ html[data-utg-loading] #folders-container {
     const guard = {
       on: on && !!settings.blockOtherChats,
       folder: settings.focusFolderMode ? settings.focusFolderName || "" : "",
+      breakUntil: focusBreakUntil,
     };
     document.dispatchEvent(
       new CustomEvent("utg:filter", {
@@ -353,7 +357,17 @@ html[data-utg-loading] #folders-container {
     }
   });
 
+  chrome.storage.local.get({ focusBreakUntil: 0 }, (stored) => {
+    focusBreakUntil = stored.focusBreakUntil || 0;
+    if (settingsLoaded) sendFilter();
+  });
+
   chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && "focusBreakUntil" in changes) {
+      focusBreakUntil = changes.focusBreakUntil.newValue || 0;
+      if (settingsLoaded) sendFilter();
+      return;
+    }
     if (area !== "sync") return;
     for (const [key, { newValue }] of Object.entries(changes)) {
       settings[key] = newValue === undefined ? DEFAULTS[key] : newValue;

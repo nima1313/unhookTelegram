@@ -298,3 +298,24 @@ footer {
 .master .slider {
   background: var(--line);
 }
+
+/* "Unlock for 1 minute" under Block other chats */
+.break-btn {
+  width: 100%;
+  padding: 9px;
+  margin-top: 12px;
+  background: none;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.break-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+  filter: none;
+}
+
+#breakStatus {
+  margin: 6px 0 0;
+  text-align: center;
+}

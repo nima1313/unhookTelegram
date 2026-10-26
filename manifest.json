@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Unhook for Telegram",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Control what you see in Telegram Web K (web.telegram.org/k/). Hide the search bar, folder tabs, chat list, stories, specific chats by name, or any element you pick.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
